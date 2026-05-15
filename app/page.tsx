@@ -1,0 +1,532 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import {
+  addDoc,
+  collection,
+  serverTimestamp
+} from "firebase/firestore";
+import {
+  getDownloadURL,
+  ref,
+  uploadBytes
+} from "firebase/storage";
+import {
+  BookOpen,
+  Brain,
+  CheckCircle2,
+  ChevronRight,
+  FileText,
+  Flame,
+  GraduationCap,
+  Loader2,
+  MessageSquareText,
+  Sparkles,
+  UploadCloud
+} from "lucide-react";
+import clsx from "clsx";
+import { getFirebaseClient, hasFirebaseConfig } from "@/lib/firebase";
+import type { ChatMessage, StudyResult } from "@/lib/types";
+
+const tabs = [
+  { id: "summary", label: "Summary", icon: FileText },
+  { id: "quiz", label: "Quiz", icon: CheckCircle2 },
+  { id: "flashcards", label: "Flashcards", icon: BookOpen },
+  { id: "chat", label: "AI Chat", icon: MessageSquareText }
+] as const;
+
+type TabId = (typeof tabs)[number]["id"];
+
+export default function Home() {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("summary");
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<StudyResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [syncStatus, setSyncStatus] = useState(
+    hasFirebaseConfig() ? "Firebase ready." : "Firebase env not configured yet."
+  );
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      role: "assistant",
+      content: "Upload PDF dulu, lalu tanya bagian materi yang masih bikin macet."
+    }
+  ]);
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const progressLabel = useMemo(() => {
+    if (loading) return "Extracting PDF and asking Gemini...";
+    if (result?.usedMock) return "Demo mode. Add Gemini API key for real AI output.";
+    if (result) return "Study pack ready.";
+    return "Ready for your lecture PDF.";
+  }, [loading, result]);
+
+  async function handleGenerate(selectedFile = file) {
+    if (!selectedFile) {
+      setError("Choose a PDF first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    try {
+      const response = await fetch("/api/study/generate", {
+        method: "POST",
+        body: formData
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to generate study pack");
+      }
+
+      setResult(payload as StudyResult);
+      void persistStudyPack(selectedFile, payload as StudyResult, setSyncStatus);
+      setActiveTab("summary");
+      setChatMessages([
+        {
+          role: "assistant",
+          content:
+            "Study pack sudah siap. Kamu bisa tanya konsep tertentu, minta contoh, atau minta versi ELI5."
+        }
+      ]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendChat() {
+    if (!chatInput.trim() || !result || chatLoading) return;
+
+    const question = chatInput.trim();
+    setChatInput("");
+    setChatMessages((messages) => [...messages, { role: "user", content: question }]);
+    setChatLoading(true);
+
+    try {
+      const response = await fetch("/api/study/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          materialText: result.materialText
+        })
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Chat failed");
+      }
+
+      setChatMessages((messages) => [
+        ...messages,
+        { role: "assistant", content: payload.answer }
+      ]);
+    } catch (caught) {
+      setChatMessages((messages) => [
+        ...messages,
+        {
+          role: "assistant",
+          content: caught instanceof Error ? caught.message : "Aku belum bisa menjawab saat ini."
+        }
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen">
+      <section className="mx-auto grid w-full max-w-7xl gap-8 px-5 py-6 lg:grid-cols-[0.95fr_1.35fr] lg:px-8">
+        <aside className="flex min-h-[calc(100vh-48px)] flex-col justify-between rounded-[8px] border border-line bg-white p-5 shadow-soft">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-[8px] bg-spark text-white">
+                <Sparkles size={22} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-spark">StudySpark AI</p>
+                <h1 className="text-3xl font-bold tracking-normal text-ink sm:text-5xl">
+                  Study smarter with AI.
+                </h1>
+              </div>
+            </div>
+
+            <p className="mt-6 max-w-xl text-base leading-7 text-muted">
+              Upload lecture materials and instantly generate summaries, quizzes,
+              flashcards, and simple explanations with Gemini.
+            </p>
+
+            <div className="mt-7 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              {[
+                ["Gemini", "AI summary, quiz, flashcards"],
+                ["Firebase", "Storage and study history ready"],
+                ["Cloud Run", "Production deployment path"]
+              ].map(([title, description]) => (
+                <div key={title} className="rounded-[8px] border border-line bg-slate-50 p-4">
+                  <p className="font-semibold text-ink">{title}</p>
+                  <p className="mt-1 text-sm leading-6 text-muted">{description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 rounded-[8px] border border-blue-100 bg-blue-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-spark">
+              <Flame size={17} />
+              Killer feature
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              Explain Like I&apos;m 5 turns difficult topics into simple examples for
+              beginner students.
+            </p>
+          </div>
+        </aside>
+
+        <section className="space-y-5">
+          <div className="glass sticky top-4 z-10 rounded-[8px] border border-line p-3 shadow-soft">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-emerald-600 text-white">
+                  <GraduationCap size={20} />
+                </div>
+              <div>
+                <p className="text-sm font-semibold text-ink">AI Study Dashboard</p>
+                <p className="text-sm text-muted">{progressLabel}</p>
+                <p className="text-xs text-muted">{syncStatus}</p>
+              </div>
+              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-spark px-4 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                <UploadCloud size={18} />
+                Upload PDF
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[270px_1fr]">
+            <div className="space-y-5">
+              <div className="rounded-[8px] border border-line bg-white p-4 shadow-soft">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={(event) => {
+                    const selected = event.target.files?.[0] || null;
+                    setFile(selected);
+                    if (selected) void handleGenerate(selected);
+                  }}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex min-h-48 w-full flex-col items-center justify-center rounded-[8px] border border-dashed border-blue-300 bg-blue-50 px-4 text-center transition hover:bg-blue-100"
+                >
+                  <UploadCloud className="text-spark" size={34} />
+                  <span className="mt-3 font-semibold text-ink">
+                    {file ? file.name : "Drop your lecture PDF"}
+                  </span>
+                  <span className="mt-1 text-sm leading-6 text-muted">
+                    PDF text extraction runs on the server.
+                  </span>
+                </button>
+                <button
+                  onClick={() => void handleGenerate()}
+                  disabled={!file || loading}
+                  className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[8px] bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {loading ? <Loader2 className="animate-spin" size={18} /> : <Brain size={18} />}
+                  Generate Study Pack
+                </button>
+                {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+              </div>
+
+              <nav className="rounded-[8px] border border-line bg-white p-2 shadow-soft">
+                {tabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={clsx(
+                        "flex h-11 w-full items-center justify-between rounded-[8px] px-3 text-sm font-semibold transition",
+                        activeTab === tab.id
+                          ? "bg-blue-50 text-spark"
+                          : "text-slate-600 hover:bg-slate-50"
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon size={18} />
+                        {tab.label}
+                      </span>
+                      <ChevronRight size={16} />
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            <div className="min-h-[620px] rounded-[8px] border border-line bg-white p-5 shadow-soft">
+              {!result ? (
+                <EmptyState loading={loading} />
+              ) : (
+                <>
+                  <div className="mb-5 flex flex-col gap-2 border-b border-line pb-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-spark">{result.documentTitle}</p>
+                      <h2 className="text-2xl font-bold text-ink">{currentTitle(activeTab)}</h2>
+                    </div>
+                    <p className="text-sm text-muted">
+                      {result.extractedChars.toLocaleString()} characters extracted
+                    </p>
+                  </div>
+
+                  {activeTab === "summary" ? <SummaryView result={result} /> : null}
+                  {activeTab === "quiz" ? <QuizView result={result} /> : null}
+                  {activeTab === "flashcards" ? <FlashcardsView result={result} /> : null}
+                  {activeTab === "chat" ? (
+                    <ChatView
+                      messages={chatMessages}
+                      input={chatInput}
+                      loading={chatLoading}
+                      onInput={setChatInput}
+                      onSend={() => void sendChat()}
+                    />
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  );
+}
+
+async function persistStudyPack(
+  file: File,
+  result: StudyResult,
+  setSyncStatus: (status: string) => void
+) {
+  const firebase = getFirebaseClient();
+
+  if (!firebase) {
+    setSyncStatus("Firebase env not configured yet.");
+    return;
+  }
+
+  try {
+    setSyncStatus("Saving to Firebase...");
+    const filePath = `documents/${Date.now()}-${file.name}`;
+    const fileRef = ref(firebase.storage, filePath);
+    await uploadBytes(fileRef, file, {
+      contentType: "application/pdf"
+    });
+    const fileUrl = await getDownloadURL(fileRef);
+
+    await addDoc(collection(firebase.db, "studyPacks"), {
+      documentTitle: result.documentTitle,
+      extractedChars: result.extractedChars,
+      summary: result.summary,
+      quiz: result.quiz,
+      flashcards: result.flashcards,
+      eli5: result.eli5,
+      usedMock: result.usedMock,
+      fileUrl,
+      filePath,
+      createdAt: serverTimestamp()
+    });
+
+    setSyncStatus("Saved to Firebase Storage and Firestore.");
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : "Firebase save failed";
+    setSyncStatus(`Firebase save skipped: ${message}`);
+  }
+}
+
+function currentTitle(tab: TabId) {
+  if (tab === "summary") return "AI Summary";
+  if (tab === "quiz") return "Quiz Generator";
+  if (tab === "flashcards") return "Flashcards";
+  return "Chat With Notes";
+}
+
+function EmptyState({ loading }: { loading: boolean }) {
+  return (
+    <div className="flex min-h-[560px] flex-col items-center justify-center text-center">
+      <div className="flex h-16 w-16 items-center justify-center rounded-[8px] bg-blue-50 text-spark">
+        {loading ? <Loader2 className="animate-spin" size={28} /> : <Sparkles size={28} />}
+      </div>
+      <h2 className="mt-4 text-2xl font-bold text-ink">
+        {loading ? "Building your study pack" : "Upload notes to begin"}
+      </h2>
+      <p className="mt-2 max-w-md text-sm leading-6 text-muted">
+        Summary, quiz, flashcards, ELI5 explanation, and chat will appear here after the PDF is processed.
+      </p>
+    </div>
+  );
+}
+
+function SummaryView({ result }: { result: StudyResult }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Panel title="Key Concepts" items={result.summary.keyConcepts} />
+      <Panel title="Exam Tips" items={result.summary.examTips} />
+      <div className="rounded-[8px] border border-line bg-slate-50 p-4 lg:col-span-2">
+        <p className="font-semibold text-ink">Simple Explanation</p>
+        <p className="mt-2 leading-7 text-slate-700">{result.summary.simpleExplanation}</p>
+      </div>
+      <Panel title="Important Formulas" items={result.summary.formulas} />
+      <div className="rounded-[8px] border border-amber-200 bg-amber-50 p-4">
+        <p className="font-semibold text-ink">Explain Like I&apos;m 5</p>
+        <p className="mt-2 leading-7 text-slate-700">{result.eli5}</p>
+      </div>
+    </div>
+  );
+}
+
+function Panel({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-[8px] border border-line bg-slate-50 p-4">
+      <p className="font-semibold text-ink">{title}</p>
+      <ul className="mt-3 space-y-2">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2 text-sm leading-6 text-slate-700">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-spark" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function QuizView({ result }: { result: StudyResult }) {
+  return (
+    <div className="space-y-4">
+      {result.quiz.map((item, index) => (
+        <details
+          key={`${item.question}-${index}`}
+          className="rounded-[8px] border border-line bg-slate-50 p-4"
+        >
+          <summary className="cursor-pointer list-none">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-normal text-spark">
+                  Question {index + 1} · {item.difficulty}
+                </p>
+                <h3 className="mt-1 font-semibold text-ink">{item.question}</h3>
+              </div>
+              <ChevronRight className="mt-1 shrink-0 text-muted" size={18} />
+            </div>
+          </summary>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {item.options.map((option) => (
+              <div key={option} className="rounded-[8px] border border-line bg-white p-3 text-sm">
+                {option}
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 rounded-[8px] border border-emerald-200 bg-emerald-50 p-3 text-sm leading-6">
+            <p className="font-semibold text-emerald-800">Answer: {item.answer}</p>
+            <p className="mt-1 text-emerald-900">{item.explanation}</p>
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function FlashcardsView({ result }: { result: StudyResult }) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {result.flashcards.map((card, index) => (
+        <div
+          key={`${card.question}-${index}`}
+          className="min-h-44 rounded-[8px] border border-line bg-slate-50 p-4"
+        >
+          <p className="text-xs font-semibold uppercase tracking-normal text-spark">
+            Flashcard {index + 1}
+          </p>
+          <h3 className="mt-2 font-semibold leading-6 text-ink">{card.question}</h3>
+          <div className="mt-4 rounded-[8px] bg-white p-3 text-sm leading-6 text-slate-700">
+            {card.answer}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChatView({
+  messages,
+  input,
+  loading,
+  onInput,
+  onSend
+}: {
+  messages: ChatMessage[];
+  input: string;
+  loading: boolean;
+  onInput: (value: string) => void;
+  onSend: () => void;
+}) {
+  return (
+    <div className="flex min-h-[540px] flex-col">
+      <div className="flex-1 space-y-3 overflow-y-auto rounded-[8px] bg-slate-50 p-3">
+        {messages.map((message, index) => (
+          <div
+            key={`${message.role}-${index}`}
+            className={clsx(
+              "max-w-[86%] rounded-[8px] p-3 text-sm leading-6",
+              message.role === "user"
+                ? "ml-auto bg-spark text-white"
+                : "border border-line bg-white text-slate-700"
+            )}
+          >
+            {message.content}
+          </div>
+        ))}
+        {loading ? (
+          <div className="inline-flex items-center gap-2 rounded-[8px] border border-line bg-white p-3 text-sm text-muted">
+            <Loader2 className="animate-spin" size={16} />
+            Thinking...
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <textarea
+          value={input}
+          onChange={(event) => onInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder="Ask: Explain deadlock like I'm 5"
+          className="min-h-12 flex-1 resize-none rounded-[8px] border border-line bg-white px-3 py-3 text-sm outline-none ring-spark/20 transition focus:ring-4"
+        />
+        <button
+          onClick={onSend}
+          disabled={!input.trim() || loading}
+          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[8px] bg-spark text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          aria-label="Send message"
+          title="Send message"
+        >
+          <ChevronRight size={20} />
+        </button>
+      </div>
+    </div>
+  );
+}
