@@ -32,8 +32,7 @@ export async function generateWithGemini(prompt: string) {
         }
       ],
       generationConfig: {
-        temperature: 0.35,
-        responseMimeType: "application/json"
+        temperature: 0.35,        
       }
     })
   });

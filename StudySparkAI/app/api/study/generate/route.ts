@@ -45,13 +45,23 @@ export async function POST(request: Request) {
 
     const generated = parseJsonResponse<GeminiStudyPayload>(aiText);
     const result: StudyResult = {
-      ...generated,
-      documentTitle: file.name,
-      extractedChars: materialText.length,
-      materialText,
-      createdAt: new Date().toISOString(),
-      usedMock: false
-    };
+  ...generated,
+  summary: {
+    ...generated.summary,
+    formulas: Array.isArray(generated.summary.formulas) 
+      ? generated.summary.formulas 
+      : typeof generated.summary.formulas === 'string' && generated.summary.formulas !== '-'
+        ? [generated.summary.formulas]
+        : []
+  },
+  documentTitle: file.name,
+  extractedChars: materialText.length,
+  materialText,
+  createdAt: new Date().toISOString(),
+  usedMock: false
+};
+    console.log("Gemini raw response:", aiText)
+    console.log("Parsed result:", JSON.stringify(generated, null, 2))
 
     return NextResponse.json(result);
   } catch (error) {
