@@ -87,3 +87,35 @@ Rules:
 Lecture material:
 ${material}
 `;
+
+export const buildExamModePrompt = (material: string) => `
+You are StudySpark AI, an exam preparation assistant.
+Analyze the lecture material and create a focused exam preparation guide.
+
+Return ONLY valid JSON. Do not wrap in markdown.
+JSON shape:
+{
+  "predictedQuestions": [
+    {
+      "question": "likely exam question",
+      "keyPoints": ["point 1", "point 2"],
+      "difficulty": "high"
+    }
+  ],
+  "mustKnowTopics": ["critical topic 1", "critical topic 2"],
+  "quickRevision": [
+    { "term": "key term", "definition": "concise definition" }
+  ],
+  "examStrategy": "paragraph advice on how to approach this exam"
+}
+
+Rules:
+- Generate exactly 5 predicted questions
+- Generate exactly 6 must-know topics
+- Generate exactly 8 quick revision terms
+- Use Bahasa Indonesia
+- Focus on the most testable concepts
+
+Lecture material:
+${material}
+`;

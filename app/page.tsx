@@ -24,7 +24,8 @@ import {
   MessageSquareText,
   Sparkles,
   Target,
-  UploadCloud
+  UploadCloud,
+  Zap
 } from "lucide-react";
 import clsx from "clsx";
 import { getFirebaseClient, hasFirebaseConfig } from "@/lib/firebase";
@@ -52,6 +53,20 @@ type StudyPlan = {
   tips: string[];
 };
 
+type ExamMode = {
+  predictedQuestions: Array<{
+    question: string;
+    keyPoints: string[];
+    difficulty: string;
+  }>;
+  mustKnowTopics: string[];
+  quickRevision: Array<{
+    term: string;
+    definition: string;
+  }>;
+  examStrategy: string;
+};
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("summary");
@@ -75,6 +90,8 @@ export default function Home() {
   const [studyPlan, setStudyPlan] = useState<StudyPlan | null>(null);
   const [examDate, setExamDate] = useState("");
   const [targetScore, setTargetScore] = useState("");
+  const [examMode, setExamMode] = useState<ExamMode | null>(null);
+  const [examModeLoading, setExamModeLoading] = useState(false);
 
   const progressLabel = useMemo(() => {
     if (loading) return "Extracting PDF and asking Gemini...";
@@ -180,6 +197,25 @@ export default function Home() {
       setError(caught instanceof Error ? caught.message : "Failed to generate plan");
     } finally {
       setPlannerLoading(false);
+    }
+  }
+
+  async function generateExamMode() {
+    if (!result) return;
+    setExamModeLoading(true);
+    try {
+      const response = await fetch("/api/study/exam-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ materialText: result.materialText })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error);
+      setExamMode(payload as ExamMode);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to generate exam mode");
+    } finally {
+      setExamModeLoading(false);
     }
   }
 
@@ -298,6 +334,19 @@ export default function Home() {
                     Create Study Plan
                   </button>
                 )}
+                {result && (
+                  <button
+                    onClick={() => void generateExamMode()}
+                    disabled={examModeLoading}
+                    className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[8px] border border-amber-400 px-4 text-sm font-semibold text-amber-600 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                  >
+                    {examModeLoading 
+                      ? <Loader2 className="animate-spin" size={18} /> 
+                      : <Zap size={18} />
+                    }
+                    {examModeLoading ? "Preparing..." : "Exam Mode"}
+                  </button>
+                )}
               </div>
 
               <nav className="rounded-[8px] border border-line bg-white p-2 shadow-soft">
@@ -380,6 +429,77 @@ export default function Home() {
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {examMode && (
+                    <div className="mt-5 rounded-[8px] border border-amber-200 bg-amber-50 p-5">
+                      <div className="flex items-center gap-2">
+                        <Zap size={20} className="text-amber-600" />
+                        <h3 className="font-bold text-ink">Exam Mode</h3>
+                      </div>
+
+                      {/* Exam Strategy */}
+                      <div className="mt-4 rounded-[8px] border border-amber-300 bg-white p-4">
+                        <p className="text-sm font-semibold text-ink">📋 Strategi Ujian</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{examMode.examStrategy}</p>
+                      </div>
+
+                      {/* Must Know Topics */}
+                      <div className="mt-3 rounded-[8px] border border-line bg-white p-4">
+                        <p className="text-sm font-semibold text-ink">🔥 Must-Know Topics</p>
+                        <ul className="mt-2 space-y-1">
+                          {examMode.mustKnowTopics.map((topic, i) => (
+                            <li key={i} className="flex gap-2 text-sm text-slate-700">
+                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                              {topic}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Predicted Questions */}
+                      <div className="mt-3 space-y-3">
+                        <p className="text-sm font-semibold text-ink">🎯 Predicted Exam Questions</p>
+                        {examMode.predictedQuestions.map((q, i) => (
+                          <div key={i} className="rounded-[8px] border border-line bg-white p-4">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="font-semibold text-ink text-sm">{q.question}</p>
+                              <span className={clsx(
+                                "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
+                                q.difficulty === "high" 
+                                  ? "bg-red-100 text-red-700" 
+                                  : q.difficulty === "medium"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-green-100 text-green-700"
+                              )}>
+                                {q.difficulty}
+                              </span>
+                            </div>
+                            <ul className="mt-2 space-y-1">
+                              {q.keyPoints.map((point, j) => (
+                                <li key={j} className="flex gap-2 text-sm text-slate-600">
+                                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-spark" />
+                                  {point}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Quick Revision */}
+                      <div className="mt-3 rounded-[8px] border border-line bg-white p-4">
+                        <p className="text-sm font-semibold text-ink">⚡ Quick Revision</p>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {examMode.quickRevision.map((item, i) => (
+                            <div key={i} className="rounded-[8px] bg-slate-50 p-3">
+                              <p className="text-xs font-semibold text-spark">{item.term}</p>
+                              <p className="mt-1 text-sm text-slate-700">{item.definition}</p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
