@@ -241,29 +241,60 @@ export default function Home() {
               flashcards, and simple explanations with Gemini.
             </p>
 
-            <div className="mt-7 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            {/* How it works */}
+            <div className="mt-7">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted">How it works</p>
+              <div className="mt-3 space-y-3">
+                {[
+                  { step: "1", title: "Upload your PDF", desc: "Drop any lecture notes or textbook chapter" },
+                  { step: "2", title: "AI generates your study pack", desc: "Summary, quiz, flashcards & ELI5 in seconds" },
+                  { step: "3", title: "Study smarter", desc: "Use Study Planner & Exam Mode to ace your exam" }
+                ].map(({ step, title, desc }) => (
+                  <div key={step} className="flex gap-3 items-start">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-spark text-white text-xs font-bold">
+                      {step}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-ink">{title}</p>
+                      <p className="text-xs leading-5 text-muted">{desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Feature cards */}
+            <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               {[
-                ["Gemini", "AI summary, quiz, flashcards"],
-                ["Firebase", "Storage and study history ready"],
-                ["Cloud Run", "Production deployment path"]
-              ].map(([title, description]) => (
-                <div key={title} className="rounded-[8px] border border-line bg-slate-50 p-4">
-                  <p className="font-semibold text-ink">{title}</p>
-                  <p className="mt-1 text-sm leading-6 text-muted">{description}</p>
+                { icon: "✨", title: "AI Summary", desc: "Key concepts, formulas & exam tips" },
+                { icon: "🧠", title: "Quiz + Flashcards", desc: "Test yourself with AI-generated questions" },
+                { icon: "📅", title: "Study Planner", desc: "Day-by-day schedule until exam day" },
+                { icon: "⚡", title: "Exam Mode", desc: "Predicted questions & must-know topics" },
+              ].map(({ icon, title, desc }) => (
+                <div key={title} className="flex items-center gap-3 rounded-[8px] border border-line bg-slate-50 p-3">
+                  <span className="text-xl">{icon}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{title}</p>
+                    <p className="text-xs leading-5 text-muted">{desc}</p>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
+          {/* Bottom badge */}
           <div className="mt-8 rounded-[8px] border border-blue-100 bg-blue-50 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-spark">
               <Flame size={17} />
-              Killer feature
+              Built with Google Ecosystem
             </div>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              Explain Like I&apos;m 5 turns difficult topics into simple examples for
-              beginner students.
-            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {["Gemini API", "Firebase", "Cloud Run", "Next.js 15"].map((tech) => (
+                <span key={tech} className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-spark">
+                  {tech}
+                </span>
+              ))}
+            </div>
           </div>
         </aside>
 
@@ -645,6 +676,68 @@ function SummaryView({ result }: { result: StudyResult }) {
         <p className="font-semibold text-ink">Explain Like I&apos;m 5</p>
         <p className="mt-2 leading-7 text-slate-700">{result.eli5}</p>
       </div>
+      <div className="lg:col-span-2">
+        <DifficultyBadge quiz={result.quiz} />
+      </div>
+    </div>
+  );
+}
+
+function DifficultyBadge({ quiz }: { quiz: StudyResult["quiz"] }) {
+  const easy = quiz.filter((q) => q.difficulty === "easy").length;
+  const medium = quiz.filter((q) => q.difficulty === "medium").length;
+  const hard = quiz.filter((q) => q.difficulty === "hard").length;
+  const total = quiz.length;
+
+  const hardTopics = quiz
+    .filter((q) => q.difficulty === "hard")
+    .map((q) => q.question);
+
+  return (
+    <div className="rounded-[8px] border border-line bg-white p-4">
+      <p className="text-sm font-semibold text-ink">🧠 Topic Difficulty Analysis</p>
+      
+      <div className="mt-3 flex gap-2">
+        <div className="flex-1 rounded-[8px] bg-green-50 border border-green-200 p-3 text-center">
+          <p className="text-2xl font-bold text-green-700">{easy}</p>
+          <p className="text-xs text-green-600 font-semibold">Easy</p>
+        </div>
+        <div className="flex-1 rounded-[8px] bg-amber-50 border border-amber-200 p-3 text-center">
+          <p className="text-2xl font-bold text-amber-700">{medium}</p>
+          <p className="text-xs text-amber-600 font-semibold">Medium</p>
+        </div>
+        <div className="flex-1 rounded-[8px] bg-red-50 border border-red-200 p-3 text-center">
+          <p className="text-2xl font-bold text-red-700">{hard}</p>
+          <p className="text-xs text-red-600 font-semibold">Hard</p>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mt-3 h-2 w-full rounded-full bg-slate-100 overflow-hidden flex">
+        <div 
+          className="h-full bg-green-400 transition-all"
+          style={{ width: `${(easy/total)*100}%` }}
+        />
+        <div 
+          className="h-full bg-amber-400 transition-all"
+          style={{ width: `${(medium/total)*100}%` }}
+        />
+        <div 
+          className="h-full bg-red-400 transition-all"
+          style={{ width: `${(hard/total)*100}%` }}
+        />
+      </div>
+
+      {hardTopics.length > 0 && (
+        <div className="mt-3 rounded-[8px] bg-red-50 border border-red-100 p-3">
+          <p className="text-xs font-semibold text-red-700">🔴 Focus on these hard topics:</p>
+          <ul className="mt-1 space-y-1">
+            {hardTopics.map((topic, i) => (
+              <li key={i} className="text-xs text-red-600 leading-5">• {topic}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
