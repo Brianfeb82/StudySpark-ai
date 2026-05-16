@@ -14,6 +14,7 @@ import {
 import {
   BookOpen,
   Brain,
+  Calendar,
   CheckCircle2,
   ChevronRight,
   FileText,
@@ -22,6 +23,7 @@ import {
   Loader2,
   MessageSquareText,
   Sparkles,
+  Target,
   UploadCloud
 } from "lucide-react";
 import clsx from "clsx";
@@ -36,6 +38,19 @@ const tabs = [
 ] as const;
 
 type TabId = (typeof tabs)[number]["id"];
+
+type StudyPlan = {
+  totalDays: number;
+  dailyGoal: string;
+  plan: Array<{
+    day: number;
+    date: string;
+    focus: string;
+    tasks: string[];
+    duration: string;
+  }>;
+  tips: string[];
+};
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -55,6 +70,11 @@ export default function Home() {
     }
   ]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [showPlanner, setShowPlanner] = useState(false);
+  const [plannerLoading, setPlannerLoading] = useState(false);
+  const [studyPlan, setStudyPlan] = useState<StudyPlan | null>(null);
+  const [examDate, setExamDate] = useState("");
+  const [targetScore, setTargetScore] = useState("");
 
   const progressLabel = useMemo(() => {
     if (loading) return "Extracting PDF and asking Gemini...";
@@ -140,6 +160,26 @@ export default function Home() {
       ]);
     } finally {
       setChatLoading(false);
+    }
+  }
+
+  async function generatePlan() {
+    if (!result || !examDate) return;
+    setPlannerLoading(true);
+    try {
+      const response = await fetch("/api/study/planner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ materialText: result.materialText, examDate, targetScore })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error);
+      setStudyPlan(payload as StudyPlan);
+      setShowPlanner(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to generate plan");
+    } finally {
+      setPlannerLoading(false);
     }
   }
 
@@ -249,6 +289,15 @@ export default function Home() {
                   Generate Study Pack
                 </button>
                 {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+                {result && (
+                  <button
+                    onClick={() => setShowPlanner(true)}
+                    className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[8px] border border-spark px-4 text-sm font-semibold text-spark transition hover:bg-blue-50"
+                  >
+                    <Calendar size={18} />
+                    Create Study Plan
+                  </button>
+                )}
               </div>
 
               <nav className="rounded-[8px] border border-line bg-white p-2 shadow-soft">
@@ -294,6 +343,46 @@ export default function Home() {
                   {activeTab === "summary" ? <SummaryView result={result} /> : null}
                   {activeTab === "quiz" ? <QuizView result={result} /> : null}
                   {activeTab === "flashcards" ? <FlashcardsView result={result} /> : null}
+
+                  {studyPlan && (
+                    <div className="mt-5 rounded-[8px] border border-blue-200 bg-blue-50 p-5">
+                      <div className="flex items-center gap-2">
+                        <Calendar size={20} className="text-spark" />
+                        <h3 className="font-bold text-ink">Study Plan — {studyPlan.totalDays} Hari</h3>
+                      </div>
+                      <p className="mt-1 text-sm text-muted">{studyPlan.dailyGoal}</p>
+                      <div className="mt-4 space-y-3">
+                        {studyPlan.plan.map((day) => (
+                          <div key={day.day} className="rounded-[8px] border border-line bg-white p-4">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold uppercase text-spark">Hari {day.day} · {day.date}</p>
+                              <span className="text-xs text-muted">{day.duration}</span>
+                            </div>
+                            <p className="mt-1 font-semibold text-ink">{day.focus}</p>
+                            <ul className="mt-2 space-y-1">
+                              {day.tasks.map((task, i) => (
+                                <li key={i} className="flex gap-2 text-sm text-slate-700">
+                                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-spark" />
+                                  {task}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 rounded-[8px] border border-amber-200 bg-amber-50 p-4">
+                        <p className="text-sm font-semibold text-ink">Tips Belajar</p>
+                        <ul className="mt-2 space-y-1">
+                          {studyPlan.tips.map((tip, i) => (
+                            <li key={i} className="flex gap-2 text-sm text-slate-700">
+                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                              {tip}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
                   {activeTab === "chat" ? (
                     <ChatView
                       messages={chatMessages}
@@ -309,6 +398,51 @@ export default function Home() {
           </div>
         </section>
       </section>
+      {showPlanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-[8px] border border-line bg-white p-6 shadow-soft">
+            <h2 className="text-xl font-bold text-ink">Create Study Plan</h2>
+            <p className="mt-1 text-sm text-muted">Gemini akan buatkan jadwal belajar harian kamu</p>
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="text-sm font-semibold text-ink">Tanggal Ujian</label>
+                <input
+                  type="date"
+                  value={examDate}
+                  onChange={(e) => setExamDate(e.target.value)}
+                  className="mt-1 w-full rounded-[8px] border border-line px-3 py-2 text-sm outline-none ring-spark/20 focus:ring-4"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-ink">Target Nilai (opsional)</label>
+                <input
+                  type="text"
+                  value={targetScore}
+                  onChange={(e) => setTargetScore(e.target.value)}
+                  placeholder="contoh: 90, A, lulus dengan baik"
+                  className="mt-1 w-full rounded-[8px] border border-line px-3 py-2 text-sm outline-none ring-spark/20 focus:ring-4"
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setShowPlanner(false)}
+                className="flex-1 rounded-[8px] border border-line px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => void generatePlan()}
+                disabled={!examDate || plannerLoading}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-[8px] bg-spark px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
+              >
+                {plannerLoading ? <Loader2 className="animate-spin" size={16} /> : <Target size={16} />}
+                Generate Plan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

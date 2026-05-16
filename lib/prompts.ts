@@ -49,3 +49,41 @@ ${material}
 Student question:
 ${question}
 `;
+
+export const buildPlannerPrompt = (
+  material: string,
+  examDate: string,
+  targetScore: string
+) => `
+You are StudySpark AI, a study planner assistant.
+Based on the lecture material below, create a day-by-day study plan.
+
+Exam date: ${examDate}
+Target score: ${targetScore}
+
+Return ONLY valid JSON. Do not wrap in markdown.
+JSON shape:
+{
+  "totalDays": 7,
+  "dailyGoal": "short motivational daily goal",
+  "plan": [
+    {
+      "day": 1,
+      "date": "Monday, May 19",
+      "focus": "Topic to focus on",
+      "tasks": ["task 1", "task 2", "task 3"],
+      "duration": "2 hours"
+    }
+  ],
+  "tips": ["study tip 1", "study tip 2", "study tip 3"]
+}
+
+Rules:
+- Generate a realistic day-by-day plan based on the material topics
+- Each day max 3 tasks, keep it achievable
+- Use Bahasa Indonesia
+- Calculate days from today until exam date
+
+Lecture material:
+${material}
+`;
