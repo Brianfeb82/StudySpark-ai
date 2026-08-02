@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateWithGemini, parseJsonResponse } from "@/lib/gemini";
+import { createMockStudyPlan } from "@/lib/mock-study";
 import { buildPlannerPrompt } from "@/lib/prompts";
 
 export const runtime = "nodejs";
@@ -34,10 +35,7 @@ export async function POST(request: Request) {
     );
 
     if (!aiText) {
-      return NextResponse.json(
-        { error: "Failed to generate study plan" },
-        { status: 500 }
-      );
+      return NextResponse.json(createMockStudyPlan(examDate));
     }
 
     const plan = parseJsonResponse<StudyPlan>(aiText);

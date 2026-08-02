@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateWithGemini, parseJsonResponse } from "@/lib/gemini";
+import { createMockExamMode } from "@/lib/mock-study";
 import { buildExamModePrompt } from "@/lib/prompts";
 
 export const runtime = "nodejs";
@@ -33,10 +34,7 @@ export async function POST(request: Request) {
     const aiText = await generateWithGemini(buildExamModePrompt(materialText));
 
     if (!aiText) {
-      return NextResponse.json(
-        { error: "Failed to generate exam mode" },
-        { status: 500 }
-      );
+      return NextResponse.json(createMockExamMode());
     }
 
     const examMode = parseJsonResponse<ExamMode>(aiText);

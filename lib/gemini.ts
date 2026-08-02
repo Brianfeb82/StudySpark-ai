@@ -62,5 +62,18 @@ export function parseJsonResponse<T>(text: string): T {
     .replace(/```$/i, "")
     .trim();
 
-  return JSON.parse(cleaned) as T;
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    // Gemini sometimes wraps the JSON in prose; fall back to the
+    // outermost JSON object/array in the response.
+    const start = cleaned.search(/[{[]/);
+    const end = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
+
+    if (start === -1 || end <= start) {
+      throw new Error("Gemini returned an invalid JSON response");
+    }
+
+    return JSON.parse(cleaned.slice(start, end + 1)) as T;
+  }
 }

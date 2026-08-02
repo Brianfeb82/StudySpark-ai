@@ -8,6 +8,10 @@ import type { StudyResult } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+// Vercel serverless rejects request bodies above 4.5MB before they reach
+// this code, so fail early with a clear message instead of an opaque 413.
+const MAX_PDF_SIZE = 4 * 1024 * 1024;
+
 type GeminiStudyPayload = Omit<
   StudyResult,
   "documentTitle" | "extractedChars" | "materialText" | "createdAt" | "usedMock"
@@ -24,6 +28,13 @@ export async function POST(request: Request) {
 
     if (file.type !== "application/pdf") {
       return NextResponse.json({ error: "Please upload a PDF file" }, { status: 400 });
+    }
+
+    if (file.size > MAX_PDF_SIZE) {
+      return NextResponse.json(
+        { error: "PDF terlalu besar untuk versi demo (maks 4MB). Coba file yang lebih kecil." },
+        { status: 413 }
+      );
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -60,8 +71,6 @@ export async function POST(request: Request) {
   createdAt: new Date().toISOString(),
   usedMock: false
 };
-    console.log("Gemini raw response:", aiText)
-    console.log("Parsed result:", JSON.stringify(generated, null, 2))
 
     return NextResponse.json(result);
   } catch (error) {

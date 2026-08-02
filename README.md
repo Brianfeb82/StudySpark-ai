@@ -9,7 +9,7 @@ StudySpark AI is a polished AI study assistant MVP for the Google ecosystem. Upl
 - Summary, exam tips, formulas, quiz, flashcards, and ELI5 explanation
 - Chat with uploaded notes
 - Demo fallback when `GEMINI_API_KEY` is not configured
-- Cloud Run-ready Dockerfile
+- Deployed on Vercel (Cloud Run Dockerfile kept as legacy option)
 
 ## Tech Stack
 
@@ -17,7 +17,7 @@ StudySpark AI is a polished AI study assistant MVP for the Google ecosystem. Upl
 - TailwindCSS
 - Gemini API
 - Firebase-ready client config
-- Cloud Run deployment path
+- Vercel deployment
 
 ## Local Setup
 
@@ -40,7 +40,21 @@ Then open `http://localhost:3000`.
 
 Create a Firebase project, enable Firestore and Storage, then fill the `NEXT_PUBLIC_FIREBASE_*` variables in `.env.local`. The current MVP is Firebase-ready; the next step is persisting uploaded PDFs and generated study packs.
 
-## Cloud Run Deploy
+## Vercel Deploy (current)
+
+This repo is connected to Vercel. Important: set **Root Directory** to the repo
+root (`.`) in Project Settings — not a subfolder.
+
+1. Push to `main`, or run `vercel --prod` from this directory.
+2. Set env vars in the Vercel dashboard: `GEMINI_API_KEY`, `GEMINI_MODEL`,
+   and the `NEXT_PUBLIC_FIREBASE_*` values from `.env.example`.
+
+Note: Vercel serverless functions cap request bodies at 4.5MB, so PDF uploads
+are limited to ~4MB (the app returns a clear error for larger files).
+
+## Cloud Run Deploy (legacy, from the competition)
+
+The Dockerfile still works if GCP billing is re-enabled:
 
 ```bash
 gcloud run deploy studyspark-ai \
