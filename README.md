@@ -55,7 +55,16 @@ Create a Firebase project, enable Firestore and Storage, then set the
 Note: the project lives on the free (Spark) plan. If the Storage bucket hits its
 quota, PDF uploads are skipped but the study pack is still saved to Firestore
 history — the UI shows an amber "kept on this device" badge. Free the quota via
-Firebase Console → Storage → delete files under `documents/`.
+Firebase Console → Storage → delete files under `documents/`, or run the helper
+script (see [Storage cleanup](#storage-cleanup)).
+
+## Storage cleanup
+
+```bash
+gcloud auth application-default login   # or export GOOGLE_APPLICATION_CREDENTIALS
+node scripts/empty-storage.mjs          # dry run, lists objects
+node scripts/empty-storage.mjs --force  # delete everything in the bucket
+```
 
 ## Vercel Deploy (current)
 
