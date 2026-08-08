@@ -38,8 +38,26 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const parsed = await pdf(buffer);
-    const materialText = parsed.text.replace(/\s+/g, " ").trim().slice(0, 28000);
+
+    let materialText = "";
+    try {
+      const parsed = await pdf(buffer);
+      materialText = parsed.text.replace(/\s+/g, " ").trim();
+    } catch (cause) {
+      const raw = cause instanceof Error ? cause.message : String(cause);
+      if (/bad xref|invalid xref|corrupt|invalid structure/i.test(raw)) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not read this PDF (crippled XRef entry). Re-save it from the original app (File > Export as PDF / Print to PDF) and try again."
+          },
+          { status: 422 }
+        );
+      }
+      throw cause;
+    }
+
+    materialText = materialText.slice(0, 28000);
 
     if (materialText.length < 80) {
       return NextResponse.json(

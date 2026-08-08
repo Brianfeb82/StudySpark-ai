@@ -18,7 +18,7 @@ body {
   background:
     linear-gradient(180deg, rgba(37, 99, 235, 0.08), transparent 360px),
     #f8fafc;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
 }
 
 button,
@@ -34,4 +34,150 @@ textarea {
 .glass {
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(18px);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.5s ease-out both;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out both;
+}
+
+.animate-pop {
+  animation: pop 0.2s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-pop {
+    animation: none;
+  }
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.14), transparent 360px),
+    #0b1526;
+  color: #e2e8f0;
+  transition: background-color 0.2s ease;
+}
+
+html.dark .bg-white {
+  background-color: #101b2e;
+}
+
+html.dark .bg-slate-50 {
+  background-color: #16223a;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #1d2b45;
+}
+
+html.dark .bg-slate-200 {
+  background-color: #24324f;
+}
+
+html.dark .border-line,
+html.dark .border-slate-100,
+html.dark .border-slate-200 {
+  border-color: #1f2c44;
+}
+
+html.dark .border-blue-100,
+html.dark .border-blue-200,
+html.dark .border-blue-300 {
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+html.dark .text-ink {
+  color: #f1f5f9;
+}
+
+html.dark .text-muted,
+html.dark .text-slate-500,
+html.dark .text-slate-600 {
+  color: #94a3b8;
+}
+
+html.dark .text-slate-700 {
+  color: #cbd5e1;
+}
+
+html.dark .text-slate-400 {
+  color: #64748b;
+}
+
+html.dark .text-spark {
+  color: #93c5fd;
+}
+
+html.dark .glass {
+  background: rgba(13, 20, 38, 0.82);
+}
+
+html.dark .bg-blue-50 {
+  background-color: rgba(37, 99, 235, 0.14);
+}
+
+html.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12);
+}
+
+html.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.12);
+}
+
+html.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+html.dark .bg-green-50 {
+  background-color: rgba(16, 185, 129, 0.14);
+}
+
+html.dark .bg-emerald-600,
+html.dark .bg-spark {
+  filter: brightness(1.15);
+}
+
+html.dark .shadow-soft {
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
 }

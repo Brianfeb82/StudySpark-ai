@@ -1,10 +1,17 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addDoc,
   collection,
-  serverTimestamp
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc
 } from "firebase/firestore";
 import {
   getDownloadURL,
@@ -20,9 +27,12 @@ import {
   FileText,
   Flame,
   GraduationCap,
+  History,
   Loader2,
   MessageSquareText,
+  Moon,
   Sparkles,
+  Sun,
   Target,
   UploadCloud,
   Zap
@@ -35,7 +45,8 @@ const tabs = [
   { id: "summary", label: "Summary", icon: FileText },
   { id: "quiz", label: "Quiz", icon: CheckCircle2 },
   { id: "flashcards", label: "Flashcards", icon: BookOpen },
-  { id: "chat", label: "AI Chat", icon: MessageSquareText }
+  { id: "chat", label: "AI Chat", icon: MessageSquareText },
+  { id: "history", label: "History", icon: History }
 ] as const;
 
 type TabId = (typeof tabs)[number]["id"];
@@ -67,6 +78,14 @@ type ExamMode = {
   examStrategy: string;
 };
 
+type HistoryEntry = {
+  id: string;
+  documentTitle: string;
+  extractedChars: number;
+  createdAt: Date | null;
+  usedMock: boolean;
+};
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("summary");
@@ -92,6 +111,94 @@ export default function Home() {
   const [targetScore, setTargetScore] = useState("");
   const [examMode, setExamMode] = useState<ExamMode | null>(null);
   const [examModeLoading, setExamModeLoading] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    setDark(localStorage.getItem("ss-dark") === "1");
+  }, []);
+
+  useEffect(() => {
+    const element = document.documentElement;
+    element.classList.toggle("dark", dark);
+    localStorage.setItem("ss-dark", dark ? "1" : "0");
+  }, [dark]);
+
+  useEffect(() => {
+    if (activeTab !== "history") return;
+
+    const firebase = getFirebaseClient();
+    if (!firebase) return;
+
+    let cancelled = false;
+    setHistoryLoading(true);
+    getDocs(
+      query(collection(firebase.db, "studyPacks"), orderBy("createdAt", "desc"), limit(20))
+    )
+      .then((snapshot) => {
+        if (cancelled) return;
+        setHistory(
+          snapshot.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              documentTitle: String(data.documentTitle ?? "Untitled"),
+              extractedChars: Number(data.extractedChars ?? 0),
+              createdAt:
+                data.createdAt && typeof data.createdAt.toDate === "function"
+                  ? data.createdAt.toDate()
+                  : null,
+              usedMock: Boolean(data.usedMock)
+            };
+          })
+        );
+      })
+      .catch((caught) => {
+        if (cancelled) return;
+        setHistoryError(
+          caught instanceof Error ? caught.message : "Could not load history"
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
+
+  async function openHistoryDoc(id: string) {
+    const firebase = getFirebaseClient();
+    if (!firebase) return;
+
+    try {
+      const snapshot = await getDoc(doc(firebase.db, "studyPacks", id));
+      if (!snapshot.exists()) {
+        setError("That study pack no longer exists.");
+        return;
+      }
+      const data = snapshot.data();
+      setResult({
+        ...(data as unknown as StudyResult),
+        materialText: String(data.materialText ?? ""),
+        createdAt: ""
+      });
+      setActiveTab("summary");
+      setChatMessages([
+        {
+          role: "assistant",
+          content:
+            "Study pack loaded from history. Ask me anything about this material."
+        }
+      ]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not open study pack");
+    }
+  }
 
   const progressLabel = useMemo(() => {
     if (loading) return "Extracting PDF and asking Gemini...";
@@ -99,6 +206,35 @@ export default function Home() {
     if (result) return "Study pack ready.";
     return "Ready for your lecture PDF.";
   }, [loading, result]);
+
+  const statusTone = useMemo(() => {
+    if (loading) {
+      return {
+        wrap: "border-blue-200 bg-blue-50 text-blue-700",
+        dot: "bg-blue-500 animate-pulse",
+        label: "Working..."
+      };
+    }
+    if (/saved to history/i.test(syncStatus)) {
+      return {
+        wrap: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        dot: "bg-emerald-500",
+        label: "Saved to history"
+      };
+    }
+    if (/this device only|not configured|not stored|kept on this device/i.test(syncStatus)) {
+      return {
+        wrap: "border-amber-200 bg-amber-50 text-amber-700",
+        dot: "bg-amber-500",
+        label: "Kept on this device"
+      };
+    }
+    return {
+      wrap: "border-slate-200 bg-slate-50 text-slate-500",
+      dot: "bg-slate-300",
+      label: progressLabel
+    };
+  }, [loading, syncStatus, progressLabel]);
 
   async function handleGenerate(selectedFile = file) {
     if (!selectedFile) {
@@ -236,7 +372,7 @@ export default function Home() {
               </div>
             </div>
 
-            <p className="mt-6 max-w-xl text-base leading-7 text-muted">
+            <p className="mt-6 max-w-xl animate-fade-up text-base leading-7 text-muted">
               Upload lecture materials and instantly generate summaries, quizzes,
               flashcards, and simple explanations with Gemini.
             </p>
@@ -249,35 +385,39 @@ export default function Home() {
                   { step: "1", title: "Upload your PDF", desc: "Drop any lecture notes or textbook chapter" },
                   { step: "2", title: "AI generates your study pack", desc: "Summary, quiz, flashcards & ELI5 in seconds" },
                   { step: "3", title: "Study smarter", desc: "Use Study Planner & Exam Mode to ace your exam" }
-                ].map(({ step, title, desc }) => (
-                  <div key={step} className="flex gap-3 items-start">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-spark text-white text-xs font-bold">
-                      {step}
+                ].map(({ step, title, desc }, index) => (
+                  <Reveal key={step} delay={index * 90}>
+                    <div className="flex gap-3 items-start">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-spark text-white text-xs font-bold">
+                        {step}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{title}</p>
+                        <p className="text-xs leading-5 text-muted">{desc}</p>
+                      </div>
+                    </div>
+                  </Reveal>
+                ))}
+              </div>
+            </div>
+
+            {/* What you get */}
+            <div className="mt-8 space-y-3">
+              {[
+                { Icon: Brain, title: "Learn faster", desc: "Summary, quizzes, flashcards & ELI5 in one study pack" },
+                { Icon: Calendar, title: "Hit your exam target", desc: "Day-by-day planner plus predicted questions" }
+              ].map(({ Icon, title, desc }, index) => (
+                <Reveal key={title} delay={index * 100}>
+                  <div className="flex items-center gap-3 rounded-[8px] border border-line bg-slate-50 p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-spark text-white">
+                      <Icon size={18} />
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-ink">{title}</p>
                       <p className="text-xs leading-5 text-muted">{desc}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Feature cards */}
-            <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              {[
-                { icon: "✨", title: "AI Summary", desc: "Key concepts, formulas & exam tips" },
-                { icon: "🧠", title: "Quiz + Flashcards", desc: "Test yourself with AI-generated questions" },
-                { icon: "📅", title: "Study Planner", desc: "Day-by-day schedule until exam day" },
-                { icon: "⚡", title: "Exam Mode", desc: "Predicted questions & must-know topics" },
-              ].map(({ icon, title, desc }) => (
-                <div key={title} className="flex items-center gap-3 rounded-[8px] border border-line bg-slate-50 p-3">
-                  <span className="text-xl">{icon}</span>
-                  <div>
-                    <p className="text-sm font-semibold text-ink">{title}</p>
-                    <p className="text-xs leading-5 text-muted">{desc}</p>
-                  </div>
-                </div>
+                </Reveal>
               ))}
             </div>
           </div>
@@ -286,10 +426,10 @@ export default function Home() {
           <div className="mt-8 rounded-[8px] border border-blue-100 bg-blue-50 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-spark">
               <Flame size={17} />
-              Built with Google Ecosystem
+              Powered by Gemini AI
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {["Gemini API", "Firebase", "Cloud Run", "Next.js 15"].map((tech) => (
+              {["Gemini API", "Firebase"].map((tech) => (
                 <span key={tech} className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-spark">
                   {tech}
                 </span>
@@ -299,25 +439,37 @@ export default function Home() {
         </aside>
 
         <section className="space-y-5">
-          <div className="glass sticky top-4 z-10 rounded-[8px] border border-line p-3 shadow-soft">
+          <div className="glass animate-fade-up sticky top-4 z-10 rounded-[8px] border border-line p-3 shadow-soft">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-emerald-600 text-white">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-emerald-600 text-white">
                   <GraduationCap size={20} />
                 </div>
-              <div>
-                <p className="text-sm font-semibold text-ink">AI Study Dashboard</p>
-                <p className="text-sm text-muted">{progressLabel}</p>
-                <p className="text-xs text-muted">{syncStatus}</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">AI Study Dashboard</p>
+                  <div className={clsx("mt-0.5 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium", statusTone.wrap)}>
+                    <span className={clsx("h-2 w-2 shrink-0 rounded-full", statusTone.dot)} />
+                    <span className="truncate">{statusTone.label}</span>
+                  </div>
+                </div>
               </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setDark((current) => !current)}
+                  className="flex h-10 w-10 items-center justify-center rounded-[8px] border border-line bg-white text-slate-600 transition hover:bg-slate-50"
+                  aria-label="Toggle dark mode"
+                  title="Toggle dark mode"
+                >
+                  {dark ? <Moon size={18} /> : <Sun size={18} />}
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-spark px-4 text-sm font-semibold text-white transition hover:bg-blue-700 active:scale-[0.98]"
+                >
+                  <UploadCloud size={18} />
+                  Upload PDF
+                </button>
               </div>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-spark px-4 text-sm font-semibold text-white transition hover:bg-blue-700"
-              >
-                <UploadCloud size={18} />
-                Upload PDF
-              </button>
             </div>
           </div>
 
@@ -337,7 +489,26 @@ export default function Home() {
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex min-h-48 w-full flex-col items-center justify-center rounded-[8px] border border-dashed border-blue-300 bg-blue-50 px-4 text-center transition hover:bg-blue-100"
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setIsDragging(false);
+                    const selected = event.dataTransfer.files?.[0] || null;
+                    if (selected) {
+                      setFile(selected);
+                      void handleGenerate(selected);
+                    }
+                  }}
+                  className={clsx(
+                    "flex min-h-48 w-full flex-col items-center justify-center rounded-[8px] border border-dashed px-4 text-center transition",
+                    isDragging
+                      ? "border-spark bg-blue-50 ring-2 ring-spark/25"
+                      : "border-blue-300 bg-blue-50 hover:bg-blue-100"
+                  )}
                 >
                   <UploadCloud className="text-spark" size={34} />
                   <span className="mt-3 font-semibold text-ink">
@@ -350,7 +521,7 @@ export default function Home() {
                 <button
                   onClick={() => void handleGenerate()}
                   disabled={!file || loading}
-                  className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[8px] bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[8px] bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 active:scale-[0.98]"
                 >
                   {loading ? <Loader2 className="animate-spin" size={18} /> : <Brain size={18} />}
                   Generate Study Pack
@@ -406,7 +577,14 @@ export default function Home() {
             </div>
 
             <div className="min-h-[620px] rounded-[8px] border border-line bg-white p-5 shadow-soft">
-              {!result ? (
+              {activeTab === "history" ? (
+                <HistoryView
+                  entries={history}
+                  loading={historyLoading}
+                  error={historyError}
+                  onOpen={(id) => void openHistoryDoc(id)}
+                />
+              ) : !result ? (
                 <EmptyState loading={loading} />
               ) : (
                 <>
@@ -420,9 +598,11 @@ export default function Home() {
                     </p>
                   </div>
 
-                  {activeTab === "summary" ? <SummaryView result={result} /> : null}
-                  {activeTab === "quiz" ? <QuizView result={result} /> : null}
-                  {activeTab === "flashcards" ? <FlashcardsView result={result} /> : null}
+                  <div key={activeTab} className="animate-fade-in">
+                    {activeTab === "summary" ? <SummaryView result={result} /> : null}
+                    {activeTab === "quiz" ? <QuizView result={result} /> : null}
+                    {activeTab === "flashcards" ? <FlashcardsView result={result} /> : null}
+                  </div>
 
                   {studyPlan && (
                     <div className="mt-5 rounded-[8px] border border-blue-200 bg-blue-50 p-5">
@@ -473,13 +653,19 @@ export default function Home() {
 
                       {/* Exam Strategy */}
                       <div className="mt-4 rounded-[8px] border border-amber-300 bg-white p-4">
-                        <p className="text-sm font-semibold text-ink">📋 Strategi Ujian</p>
+                        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                          <FileText size={16} className="text-amber-600" />
+                          Strategi Ujian
+                        </p>
                         <p className="mt-2 text-sm leading-6 text-slate-700">{examMode.examStrategy}</p>
                       </div>
 
                       {/* Must Know Topics */}
                       <div className="mt-3 rounded-[8px] border border-line bg-white p-4">
-                        <p className="text-sm font-semibold text-ink">🔥 Must-Know Topics</p>
+                        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                          <Flame size={16} className="text-amber-600" />
+                          Must-Know Topics
+                        </p>
                         <ul className="mt-2 space-y-1">
                           {examMode.mustKnowTopics.map((topic, i) => (
                             <li key={i} className="flex gap-2 text-sm text-slate-700">
@@ -492,7 +678,10 @@ export default function Home() {
 
                       {/* Predicted Questions */}
                       <div className="mt-3 space-y-3">
-                        <p className="text-sm font-semibold text-ink">🎯 Predicted Exam Questions</p>
+                        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                          <Target size={16} className="text-amber-600" />
+                          Predicted Exam Questions
+                        </p>
                         {examMode.predictedQuestions.map((q, i) => (
                           <div key={i} className="rounded-[8px] border border-line bg-white p-4">
                             <div className="flex items-start justify-between gap-2">
@@ -522,7 +711,10 @@ export default function Home() {
 
                       {/* Quick Revision */}
                       <div className="mt-3 rounded-[8px] border border-line bg-white p-4">
-                        <p className="text-sm font-semibold text-ink">⚡ Quick Revision</p>
+                        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                          <Zap size={16} className="text-amber-600" />
+                          Quick Revision
+                        </p>
                         <div className="mt-2 grid gap-2 sm:grid-cols-2">
                           {examMode.quickRevision.map((item, i) => (
                             <div key={i} className="rounded-[8px] bg-slate-50 p-3">
@@ -610,32 +802,38 @@ async function persistStudyPack(
     return;
   }
 
-  try {
-    setSyncStatus("Saving to Firebase...");
-    const filePath = `documents/${Date.now()}-${file.name}`;
-    const fileRef = ref(firebase.storage, filePath);
-    await uploadBytes(fileRef, file, {
-      contentType: "application/pdf"
-    });
-    const fileUrl = await getDownloadURL(fileRef);
+  const filePath = `documents/${Date.now()}-${file.name}`;
 
-    await addDoc(collection(firebase.db, "studyPacks"), {
+  try {
+    setSyncStatus("Saving to history...");
+    const docRef = await addDoc(collection(firebase.db, "studyPacks"), {
       documentTitle: result.documentTitle,
       extractedChars: result.extractedChars,
+      materialText: result.materialText,
       summary: result.summary,
       quiz: result.quiz,
       flashcards: result.flashcards,
       eli5: result.eli5,
       usedMock: result.usedMock,
-      fileUrl,
       filePath,
       createdAt: serverTimestamp()
     });
 
-    setSyncStatus("Saved to Firebase Storage and Firestore.");
+    try {
+      const fileRef = ref(firebase.storage, filePath);
+      await uploadBytes(fileRef, file, { contentType: "application/pdf" });
+      const fileUrl = await getDownloadURL(fileRef);
+      await updateDoc(docRef, { fileUrl });
+      setSyncStatus("Saved to history with PDF.");
+    } catch (uploadError) {
+      const raw = uploadError instanceof Error ? uploadError.message : "PDF upload failed";
+      console.error("PDF upload failed, keeping history entry only:", raw);
+      setSyncStatus("Saved to history - PDF kept local only.");
+    }
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Firebase save failed";
-    setSyncStatus(`Firebase save skipped: ${message}`);
+    const raw = caught instanceof Error ? caught.message : "Firestore save failed";
+    console.error("Firestore save failed:", raw);
+    setSyncStatus("Study pack ready - kept on this device only.");
   }
 }
 
@@ -643,7 +841,123 @@ function currentTitle(tab: TabId) {
   if (tab === "summary") return "AI Summary";
   if (tab === "quiz") return "Quiz Generator";
   if (tab === "flashcards") return "Flashcards";
+  if (tab === "history") return "Study History";
   return "Chat With Notes";
+}
+
+function Reveal({
+  children,
+  delay = 0,
+  className = ""
+}: {
+  children: React.ReactNode;
+  delay?: number;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className={clsx("transition-all duration-500 ease-out", className)}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(14px)",
+        transitionDelay: `${delay}ms`
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function HistoryView({
+  entries,
+  loading,
+  error,
+  onOpen
+}: {
+  entries: HistoryEntry[];
+  loading: boolean;
+  error: string;
+  onOpen: (id: string) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
+        <Loader2 className="animate-spin text-spark" size={28} />
+        <p className="mt-3 text-sm text-muted">Loading history...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
+        <p className="text-sm text-red-600">{error}</p>
+      </div>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <div className="flex min-h-[520px] flex-col items-center justify-center text-center">
+        <History className="text-spark" size={32} />
+        <h2 className="mt-4 text-2xl font-bold text-ink">No saved packs yet</h2>
+        <p className="mt-2 max-w-md text-sm leading-6 text-muted">
+          Generate a study pack and it will show up here, saved to Firestore.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="space-y-3">
+      {entries.map((entry) => (
+        <li key={entry.id} className="animate-fade-up rounded-[8px] border border-line bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-ink">{entry.documentTitle}</p>
+              <p className="mt-0.5 text-xs text-muted">
+                {entry.createdAt
+                  ? new Date(entry.createdAt).toLocaleString()
+                  : "saved recently"}{" "}
+                &middot; {entry.extractedChars.toLocaleString()} chars
+              </p>
+            </div>
+            <button
+              onClick={() => onOpen(entry.id)}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[8px] bg-spark px-3 text-xs font-semibold text-white transition hover:bg-blue-700 active:scale-[0.98]"
+            >
+              <BookOpen size={14} />
+              Open
+            </button>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function EmptyState({ loading }: { loading: boolean }) {
@@ -695,7 +1009,10 @@ function DifficultyBadge({ quiz }: { quiz: StudyResult["quiz"] }) {
 
   return (
     <div className="rounded-[8px] border border-line bg-white p-4">
-      <p className="text-sm font-semibold text-ink">🧠 Topic Difficulty Analysis</p>
+      <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <Brain size={16} className="text-spark" />
+        Topic Difficulty Analysis
+      </p>
       
       <div className="mt-3 flex gap-2">
         <div className="flex-1 rounded-[8px] bg-green-50 border border-green-200 p-3 text-center">
@@ -730,7 +1047,7 @@ function DifficultyBadge({ quiz }: { quiz: StudyResult["quiz"] }) {
 
       {hardTopics.length > 0 && (
         <div className="mt-3 rounded-[8px] bg-red-50 border border-red-100 p-3">
-          <p className="text-xs font-semibold text-red-700">🔴 Focus on these hard topics:</p>
+          <p className="text-xs font-semibold text-red-700">Focus on these hard topics:</p>
           <ul className="mt-1 space-y-1">
             {hardTopics.map((topic, i) => (
               <li key={i} className="text-xs text-red-600 leading-5">• {topic}</li>
@@ -764,7 +1081,7 @@ function QuizView({ result }: { result: StudyResult }) {
       {result.quiz.map((item, index) => (
         <details
           key={`${item.question}-${index}`}
-          className="rounded-[8px] border border-line bg-slate-50 p-4"
+          className="group rounded-[8px] border border-line bg-slate-50 p-4"
         >
           <summary className="cursor-pointer list-none">
             <div className="flex items-start justify-between gap-4">
@@ -774,7 +1091,7 @@ function QuizView({ result }: { result: StudyResult }) {
                 </p>
                 <h3 className="mt-1 font-semibold text-ink">{item.question}</h3>
               </div>
-              <ChevronRight className="mt-1 shrink-0 text-muted" size={18} />
+              <ChevronRight className="mt-1 shrink-0 text-muted transition-transform duration-200 group-open:rotate-90" size={18} />
             </div>
           </summary>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
