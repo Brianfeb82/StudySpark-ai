@@ -1,22 +1,25 @@
 # StudySpark AI
 
-StudySpark AI is a polished AI study assistant MVP for the Google ecosystem. Upload a lecture PDF and generate summaries, quiz questions, flashcards, beginner-friendly explanations, and chat answers using Gemini.
+StudySpark AI is an AI study assistant for the Google ecosystem, deployed on Vercel. Upload a lecture PDF and generate summaries, quiz questions, flashcards, beginner-friendly explanations, a day-by-day study planner, predicted exam questions, and chat answers using Gemini.
 
 ## Features
 
-- PDF upload and server-side text extraction
+- PDF upload and server-side text extraction with a friendly error for damaged/corrupted PDFs (bad XRef)
 - Gemini-powered study pack generation
 - Summary, exam tips, formulas, quiz, flashcards, and ELI5 explanation
 - Chat with uploaded notes
+- Study Planner (day-by-day schedule until exam day)
+- Exam Mode (predicted questions, must-know topics, quick revision)
+- Study history: every pack is saved to Firestore and can be reopened from the History tab; the PDF is uploaded to Storage best-effort
+- Drag & drop upload, dark mode toggle (persisted), Inter font, scroll/click animations
 - Demo fallback when `GEMINI_API_KEY` is not configured
-- Deployed on Vercel (Cloud Run Dockerfile kept as legacy option)
 
 ## Tech Stack
 
-- Next.js
+- Next.js 15 (App Router)
 - TailwindCSS
 - Gemini API
-- Firebase-ready client config
+- Firebase (Firestore + Storage, client-side), free tier
 - Vercel deployment
 
 ## Local Setup
@@ -27,30 +30,40 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Add your Gemini key:
+Add your keys in `.env.local`:
 
 ```bash
 GEMINI_API_KEY=your_key_here
 GEMINI_MODEL=gemini-3-flash-preview
+
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
 ```
 
 Then open `http://localhost:3000`.
 
 ## Firebase Setup
 
-Create a Firebase project, enable Firestore and Storage, then fill the `NEXT_PUBLIC_FIREBASE_*` variables in `.env.local`. The current MVP is Firebase-ready; the next step is persisting uploaded PDFs and generated study packs.
+Create a Firebase project, enable Firestore and Storage, then set the
+`NEXT_PUBLIC_FIREBASE_*` variables. Without them the app runs but shows a
+"Firebase env not configured yet." state and skips history saving.
+
+Note: the project lives on the free (Spark) plan. If the Storage bucket hits its
+quota, PDF uploads are skipped but the study pack is still saved to Firestore
+history — the UI shows an amber "kept on this device" badge. Free the quota via
+Firebase Console → Storage → delete files under `documents/`.
 
 ## Vercel Deploy (current)
 
-This repo is connected to Vercel. Important: set **Root Directory** to the repo
-root (`.`) in Project Settings — not a subfolder.
+Push to `main`, or run `vercel --prod` from this directory. Set the env vars
+from `.env.example` in the Vercel dashboard.
 
-1. Push to `main`, or run `vercel --prod` from this directory.
-2. Set env vars in the Vercel dashboard: `GEMINI_API_KEY`, `GEMINI_MODEL`,
-   and the `NEXT_PUBLIC_FIREBASE_*` values from `.env.example`.
-
-Note: Vercel serverless functions cap request bodies at 4.5MB, so PDF uploads
-are limited to ~4MB (the app returns a clear error for larger files).
+Note: Vercel serverless functions cap request bodies at about 4.5MB, so PDF
+uploads are limited to ~4MB (the app returns a clear error for larger files).
 
 ## Cloud Run Deploy (legacy, from the competition)
 
@@ -66,11 +79,8 @@ gcloud run deploy studyspark-ai \
 
 ## Demo Flow
 
-1. Upload an Operating Systems PDF.
-2. Open the AI Summary tab.
-3. Review Quiz and Flashcards.
-4. Ask AI Chat: `Explain deadlock like I'm 5.`
-
-## Competition Notes
-
-The MVP focuses on execution, usefulness, deployability, and UX polish. Keep future scope tight: auth, study history, and Firebase persistence are good next additions after the core demo works.
+1. Upload a lecture PDF (drag & drop works).
+2. Review the AI Summary, Quiz, and Flashcards tabs.
+3. Ask AI Chat: `Explain deadlock like I'm 5`.
+4. Try the Study Planner and Exam Mode.
+5. Reopen any saved pack from the History tab.
